@@ -1,50 +1,76 @@
 import { Request, Response, NextFunction } from 'express';
-import { logDebug } from '../../../lib/logger';
+import os from 'os';
+import { logDebug, logInfo } from '../../../lib/logger';
 
-// Middlewares to capture user provided by IIS (Windows Auth) via headers
-// Expected headers (set by IIS reverse proxy):
-//   - X-Forwarded-User
-//   - REMOTE_USER
-//   - AUTH_USER
-// We normalize to a simple username (without domain) and also keep the raw value.
+/**
+ * Middleware para obtener el usuario actual de Windows usando os.userInfo()
+ * No requiere IIS ni Active Directory
+ */
 
-const headerKeys = ['x-forwarded-user', 'remote-user', 'auth-user'];
+interface WindowsUserInfo {
+  username: string;
+  domain?: string;
+  email?: string;
+  homedir?: string;
+  raw: string;
+}
 
-const normalizeUser = (raw?: string | string[]): string | undefined => {
-  if (!raw) return undefined;
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  // Examples: "DOMINIO\\usuario", "DOMINIO/usuario", "usuario@dominio.local", "usuario"
-  const clean = value.trim();
-  const domainSep = clean.includes('\\') ? '\\' : clean.includes('/') ? '/' : null;
-  if (domainSep) {
-    const parts = clean.split(domainSep);
-    return parts[1] || parts[0];
+/**
+ * Obtiene información del usuario de Windows usando os.userInfo()
+ * Método nativo de Node.js, no requiere procesos externos
+ */
+function getWindowsUserFromOS(): WindowsUserInfo | null {
+  if (process.platform !== 'win32') {
+    logDebug('Sistema no es Windows, omitiendo obtención de usuario', {
+      platform: process.platform
+    });
+    return null;
   }
-  const atIdx = clean.indexOf('@');
-  if (atIdx > 0) return clean.substring(0, atIdx);
-  return clean;
-};
+
+  try {
+    const userInfo = os.userInfo();
+    const computer = process.env.COMPUTERNAME || os.hostname();
+    
+    const windowsUser: WindowsUserInfo = {
+      username: userInfo.username,
+      domain: computer,
+      homedir: userInfo.homedir,
+      email: `${userInfo.username}@${computer}.local`,
+      raw: `${computer}\\${userInfo.username}`
+    };
+
+    return windowsUser;
+  } catch (error) {
+    logDebug('Error obteniendo usuario con os.userInfo()', { 
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return null;
+  }
+}
 
 export const adUserMiddleware = (req: Request, _res: Response, next: NextFunction) => {
-  let rawUser: string | undefined;
+  // Obtener usuario de Windows usando os.userInfo()
+  const winUser = getWindowsUserFromOS();
 
-  for (const key of headerKeys) {
-    const v = req.headers[key];
-    if (v) {
-      rawUser = Array.isArray(v) ? v[0] : v;
-      break;
-    }
-  }
-
-  const normalized = normalizeUser(rawUser);
-
-  if (normalized) {
+  if (winUser) {
     (req as any).authUser = {
-      raw: rawUser,
-      username: normalized,
+      raw: winUser.raw,
+      username: winUser.username,
+      domain: winUser.domain,
+      email: winUser.email,
+      homedir: winUser.homedir,
     };
+
+    logInfo('Usuario Windows obtenido con os.userInfo()', {
+      username: winUser.username,
+      email: winUser.email,
+      domain: winUser.domain
+    });
   } else {
-    logDebug('No AD user header found', { headers: req.headers });
+    logDebug('No se pudo obtener usuario de Windows', {
+      platform: process.platform,
+      username: process.env.USERNAME
+    });
   }
 
   next();
