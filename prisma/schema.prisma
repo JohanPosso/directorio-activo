@@ -7,11 +7,33 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model MassiveExports {
+  ID              String    @id(map: "PK__MassiveE__3214EC27612D0763") @db.UniqueIdentifier
+  UserId          String    @db.UniqueIdentifier
+  CubeId          String    @db.NVarChar(255)
+  CubeName        String?   @db.NVarChar(255)
+  Status          String    @db.NVarChar(50)
+  FileSize        BigInt?
+  Duration        Int?
+  Progress        Int?
+  ProgressMessage String?   @db.NVarChar(Max)
+  ErrorMessage    String?   @db.NVarChar(Max)
+  Created         DateTime  @default(now(), map: "DF__MassiveEx__Creat__38996AB5")
+  Updated         DateTime  @default(now(), map: "DF__MassiveEx__Updat__398D8EEE")
+  Completed       DateTime?
+
+  @@index([Created(sort: Desc)], map: "IX_MassiveExports_Created")
+  @@index([Status], map: "IX_MassiveExports_Status")
+  @@index([UserId], map: "IX_MassiveExports_UserId")
+}
+
 model User {
-  id        Int      @id @default(autoincrement())
-  username  String   @unique
-  displayName String?
-  email     String?  @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id_usuario  String   @id(map: "PK_User_id_usuario") @db.UniqueIdentifier
+  email       String   @unique @map("Email") @db.NVarChar(255)
+  displayName String?  @map("DisplayName") @db.NVarChar(255)
+  activo      Boolean  @default(true, map: "DF__User__activo__4E88ABD4")
+  createdAt   DateTime @default(dbgenerated("sysutcdatetime()"), map: "DF_Users_CreatedAt") @map("CreatedAt")
+  updatedAt   DateTime @default(dbgenerated("sysutcdatetime()"), map: "DF_Users_UpdatedAt") @updatedAt @map("UpdatedAt")
+
+  @@map("User")
 }
